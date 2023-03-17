@@ -1,0 +1,9 @@
+
+Attention:
+
+/etc/init.d/gowebd00.rc first time run, \
+	if next time will run , please change the filename
+
+#remeber
+mount -o rw,remount /
+
