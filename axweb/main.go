@@ -1,12 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
+	"myapp/axty"
 	"myapp/ebus"
+	axmqttcli "myapp/mqttcli"
 	"myapp/utils"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +19,7 @@ import (
 
 var (
 	axweb *AxWeb
-	wsmap = make(map[string]*websocket.Conn)
+	wsmap = make(map[string]*axty.User)
 )
 
 func init() {
@@ -37,6 +41,7 @@ type AxWeb struct {
 	Ssl          bool
 	Cert         string
 	Privatekey   string
+	Mux          *sync.RWMutex
 }
 
 func New(host string, port int, docroot string, mqttchann string, ssl bool, cert string, privateky string) *AxWeb {
@@ -48,6 +53,7 @@ func New(host string, port int, docroot string, mqttchann string, ssl bool, cert
 		Ssl:          ssl,
 		Cert:         cert,
 		Privatekey:   privateky,
+		Mux:          &sync.RWMutex{},
 	}
 
 	return axweb
@@ -73,6 +79,9 @@ func (slf *AxWeb) Start() {
 		})
 	})
 
+	//ws
+	slf.Router.GET("/ws", slf.WsContext)
+
 	//dataEvent
 	dataEvent := make(chan ebus.DataEvent)
 	//register
@@ -82,8 +91,8 @@ func (slf *AxWeb) Start() {
 		for {
 			select {
 			case ev := <-dataEvent:
-				fmt.Println(ev.Data)
-
+				//fmt.Println(ev.Data)
+				slf.SendWs(slf.Mqttchann, ev.Data)
 			default:
 				time.Sleep(1 * time.Millisecond)
 			}
@@ -112,7 +121,9 @@ func (slf *AxWeb) WsContext(c *gin.Context) {
 
 	//action
 	wsid := fmt.Sprintf("%x", &ws)
-	wsmap[wsid] = ws
+	jobj := make(map[string]interface{})
+
+	//wsmap[wsid] = ws
 
 	for {
 		_, msg, err := ws.ReadMessage()
@@ -120,9 +131,66 @@ func (slf *AxWeb) WsContext(c *gin.Context) {
 			delete(wsmap, wsid)
 			break
 		}
-		fmt.Println(string(msg))
-	}
 
+		json.Unmarshal(msg, &jobj)
+		action := jobj["action"].(string)
+
+		//fmt.Println(string(msg))
+		if action == "subscribe" {
+			mulitySubscribe := axty.MulitySubscribe{}
+			json.Unmarshal(msg, &mulitySubscribe)
+
+			if user, ok := wsmap[wsid]; ok {
+				for _, v := range mulitySubscribe.Multichannel {
+					if !uniqueList(v.Channel, user) {
+						user.Multichannel = append(user.Multichannel, v)
+					}
+				}
+
+			} else {
+				wsmap[wsid] = &axty.User{
+					ID:           wsid,
+					Multichannel: mulitySubscribe.Multichannel,
+					Ws:           ws,
+				}
+			}
+
+			continue
+		}
+
+		if action == "send" {
+			sendObj := axty.Send{}
+			json.Unmarshal(msg, &sendObj)
+
+			for _, v1 := range sendObj.Multichannel {
+				slf.SendWs(v1.Channel, []byte(sendObj.Data))
+			}
+			continue
+		}
+
+	}
+}
+
+func uniqueList(key string, user *axty.User) bool {
+	for _, v := range user.Multichannel {
+		if key == v.Channel {
+			return true
+		}
+	}
+	return false
+}
+
+func (slf *AxWeb) SendWs(channel string, data interface{}) {
+	xdata, _ := json.Marshal(data)
+	for _, v := range wsmap {
+		for _, v2 := range v.Multichannel {
+			if v2.Channel == channel {
+				slf.Mux.Lock()
+				v.Ws.WriteMessage(1, xdata)
+				slf.Mux.Unlock()
+			}
+		}
+	}
 }
 
 func main() {
@@ -136,6 +204,8 @@ func main() {
 	mqttchann := cfg.Section("mqttcli").Key("mqttchann").String()
 	cert := cfg.Section("axweb").Key("cert").String()
 	prikey := cfg.Section("axweb").Key("prikey").String()
+
+	_ = axmqttcli.New()
 
 	axweb = New(host, port, wwwroot, mqttchann, ssl, cert, prikey)
 	axweb.Start()

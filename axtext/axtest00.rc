@@ -1,0 +1,10 @@
+
+service axtest /system/bin/sh -c /data/ax/bin/gotest
+    user root
+    disabled    
+    oneshot    
+    seclabel u:r:magisk:s0
+
+
+on property:a=1 && property:b=true
+    start axtest

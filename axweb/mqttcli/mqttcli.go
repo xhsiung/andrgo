@@ -75,44 +75,44 @@ func New() *AxMqttCli {
 	return axmqttcli
 }
 
-func (me *AxMqttCli) Start() {
+func (slf *AxMqttCli) Start() {
 	fmt.Println("AxMqttCli Start")
 
 	opts := mqtt.NewClientOptions()
 
-	if me.Security {
-		tlsconfig, err := me.NewTLSConfig()
+	if slf.Security {
+		tlsconfig, err := slf.NewTLSConfig()
 		if err != nil {
-			me.Log.Debug("failed to create TLS configuration: %v", err)
+			slf.Log.Debug("failed to create TLS configuration: %v", err)
 		}
 
 		//tls://a2vt5x3ve8uw69-ats.iot.ap-northeast-1.amazonaws.com:8883
-		opts.AddBroker(fmt.Sprintf("tls://%s:%d", me.Host, me.Port))
+		opts.AddBroker(fmt.Sprintf("tls://%s:%d", slf.Host, slf.Port))
 		opts.SetClientID(fmt.Sprintf("go_mqtt_%d", time.Now().Local().UnixMilli())).SetTLSConfig(tlsconfig)
 
 	} else {
-		opts.AddBroker(fmt.Sprintf("tcp://%s:%d", me.Host, me.Port))
+		opts.AddBroker(fmt.Sprintf("tcp://%s:%d", slf.Host, slf.Port))
 		opts.SetClientID(fmt.Sprintf("go_mqtt_%d", time.Now().Local().UnixMilli()))
 	}
 
 	//auto reconnect
-	opts.SetPingTimeout(time.Duration(me.Reconn) * time.Second)
-	opts.SetKeepAlive(time.Duration(me.Reconn) * time.Second)
+	opts.SetPingTimeout(time.Duration(slf.Reconn) * time.Second)
+	opts.SetKeepAlive(time.Duration(slf.Reconn) * time.Second)
 	opts.SetAutoReconnect(true)
-	opts.SetMaxReconnectInterval(time.Duration(me.Reconn) * time.Second)
+	opts.SetMaxReconnectInterval(time.Duration(slf.Reconn) * time.Second)
 
 	//set user,passwd
-	opts.SetUsername(me.User)
-	opts.SetPassword(me.Passwd)
+	opts.SetUsername(slf.User)
+	opts.SetPassword(slf.Passwd)
 
 	//recieve handler
-	opts.SetDefaultPublishHandler(me.msgPubHandler)
+	opts.SetDefaultPublishHandler(slf.msgPubHandler)
 
 	//conn status
-	opts.OnConnect = me.connHandler
+	opts.OnConnect = slf.connHandler
 
 	//conn err
-	opts.OnConnectionLost = me.connLostHandler
+	opts.OnConnectionLost = slf.connLostHandler
 
 	client := mqtt.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
@@ -120,22 +120,22 @@ func (me *AxMqttCli) Start() {
 		//panic(token.Error())
 	}
 
-	me.client = client
+	slf.client = client
 
-	token := client.Subscribe(me.Topic, 1, nil)
+	token := client.Subscribe(slf.Topic, 1, nil)
 	token.Wait()
 }
 
-//tls
-func (me *AxMqttCli) NewTLSConfig() (config *tls.Config, err error) {
+// tls
+func (slf *AxMqttCli) NewTLSConfig() (config *tls.Config, err error) {
 	certpool := x509.NewCertPool()
-	pemCerts, err := ioutil.ReadFile(me.Ca)
+	pemCerts, err := ioutil.ReadFile(slf.Ca)
 	if err != nil {
 		return
 	}
 	certpool.AppendCertsFromPEM(pemCerts)
 
-	cert, err := tls.LoadX509KeyPair(me.Cert, me.Prikey)
+	cert, err := tls.LoadX509KeyPair(slf.Cert, slf.Prikey)
 	if err != nil {
 		return
 	}
